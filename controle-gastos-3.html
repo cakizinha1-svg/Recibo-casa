@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Recibo — controle de gastos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<script src="https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --bg: #0A0A0C;
+    --paper: #17171C;
+    --paper2: #1D1D23;
+    --ink: #F2F1F4;
+    --ink-soft: #9B9BA5;
+    --pink: #FF4FA6;
+    --pink-soft: #FF7AC0;
+    --pink-dim: rgba(255,79,166,0.16);
+    --silver: #C9CDD6;
+    --warn: #C9CDD6;
+    --danger: #FF5757;
+    --line: #2A2A31;
+    --radius: 14px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0; background:var(--bg); font-family:'Inter',sans-serif; color:var(--ink); -webkit-font-smoothing:antialiased;}
+  #app{max-width:480px; margin:0 auto; min-height:100vh; background:var(--bg); padding-bottom:92px; position:relative;}
+  header.top{padding:28px 20px 18px;}
+  header.top .eyebrow{font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--pink-soft);}
+  header.top h1{font-family:'Fraunces',serif; font-weight:600; font-size:28px; margin:4px 0 0; letter-spacing:-0.01em;}
+  .screen{display:none; padding:0 20px;}
+  .screen.active{display:block;}
+
+  .limit-card{background:var(--paper); border-radius:var(--radius); padding:18px 18px 16px; margin-bottom:14px; border:1px solid var(--line); border-left:3px solid var(--pink);}
+  .limit-card .row-top{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:10px;}
+  .limit-card .label{font-family:'Fraunces',serif; font-weight:600; font-size:16px;}
+  .limit-card .sub{font-size:12px; color:var(--ink-soft);}
+  .limit-card .amounts{font-family:'JetBrains Mono',monospace; font-size:13px; text-align:right;}
+  .limit-card .amounts .spent{font-weight:700; font-size:16px; color:var(--pink-soft);}
+  .bar-track{height:8px; background:var(--line); border-radius:6px; overflow:hidden;}
+  .bar-fill{height:100%; border-radius:6px; background:var(--pink); transition:width .4s ease;}
+  .bar-fill.warnbar{background:var(--silver);}
+  .bar-fill.over{background:var(--danger);}
+
+  .proj-row{display:flex; gap:10px; margin-bottom:14px;}
+  .proj-card{flex:1; background:var(--paper2); border:1px solid var(--line); border-radius:12px; padding:12px; text-align:center;}
+  .proj-card .mlabel{font-size:11px; color:var(--ink-soft); text-transform:capitalize;}
+  .proj-card .mval{font-family:'JetBrains Mono',monospace; font-weight:700; font-size:15px; color:var(--pink-soft); margin-top:4px;}
+
+  .section-title{font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.12em; text-transform:uppercase; color:var(--silver); margin:26px 0 10px; display:flex; justify-content:space-between; align-items:center;}
+
+  .receipt{background:var(--paper); border-radius:4px; padding:14px 16px; margin-bottom:10px; border:1px solid var(--line); cursor:pointer;}
+  .receipt-row{display:flex; justify-content:space-between; align-items:center;}
+  .receipt-left{display:flex; flex-direction:column; gap:2px;}
+  .receipt-cat{font-family:'Fraunces',serif; font-weight:600; font-size:15px;}
+  .receipt-meta{font-size:11.5px; color:var(--ink-soft); font-family:'JetBrains Mono',monospace;}
+  .receipt-value{font-family:'JetBrains Mono',monospace; font-weight:700; font-size:16px; color:var(--pink-soft);}
+  .tag{display:inline-block; font-size:10px; font-family:'JetBrains Mono',monospace; padding:2px 6px; border-radius:20px; margin-top:4px; margin-right:4px; background:var(--pink-dim); color:var(--pink-soft); text-transform:uppercase; letter-spacing:0.05em;}
+  .tag.debito, .tag.pix{background:rgba(201,205,214,0.14); color:var(--silver);}
+  .tag.parc{background:rgba(201,205,214,0.14); color:var(--silver);}
+  .empty-state{text-align:center; padding:40px 10px; color:var(--ink-soft); font-size:13px;}
+  .receipt-itens{margin-top:10px; padding-top:10px; border-top:1px dashed var(--line); display:none;}
+  .receipt-itens.open{display:block;}
+  .receipt-item-row{display:flex; justify-content:space-between; font-size:12.5px; padding:3px 0; color:var(--ink-soft); font-family:'JetBrains Mono',monospace;}
+  .receipt-item-row span:last-child{color:var(--ink);}
+
+  nav.bottom{position:fixed; bottom:0; left:50%; transform:translateX(-50%); width:100%; max-width:480px; background:var(--paper); border-top:1px solid var(--line); display:flex; padding:8px 4px calc(8px + env(safe-area-inset-bottom));}
+  nav.bottom button{flex:1; background:none; border:none; padding:8px 2px; font-family:'Inter',sans-serif; font-size:10.5px; color:var(--ink-soft); display:flex; flex-direction:column; align-items:center; gap:3px; cursor:pointer;}
+  nav.bottom button .ic{font-size:18px;}
+  nav.bottom button.active{color:var(--pink-soft); font-weight:600;}
+
+  label{display:block; font-size:12px; color:var(--silver); margin:16px 0 6px; font-weight:500;}
+  input, select, textarea{width:100%; padding:12px 14px; border-radius:10px; border:1px solid var(--line); background:var(--paper); font-family:'Inter',sans-serif; font-size:15px; color:var(--ink);}
+  textarea{resize:vertical; min-height:70px; font-family:'JetBrains Mono',monospace; font-size:13px;}
+  input:focus, select:focus, textarea:focus{outline:2px solid var(--pink); outline-offset:1px;}
+  .choice-row{display:flex; gap:8px;}
+  .choice-btn{flex:1; padding:12px; border-radius:10px; border:1px solid var(--line); background:var(--paper); font-family:'Inter',sans-serif; font-size:13.5px; font-weight:500; color:var(--ink-soft); cursor:pointer; text-align:center;}
+  .choice-btn.selected{background:var(--pink); border-color:var(--pink); color:#0A0A0C; font-weight:700;}
+  button.primary{width:100%; margin-top:26px; padding:15px; border:none; border-radius:12px; background:linear-gradient(135deg, var(--pink), #D6338A); color:#fff; font-family:'Inter',sans-serif; font-size:15px; font-weight:600; cursor:pointer; box-shadow:0 4px 20px rgba(255,79,166,0.25);}
+  button.primary:active{opacity:0.85;}
+  button.ghost{width:100%; margin-top:10px; padding:13px; border-radius:12px; background:none; border:1px dashed var(--line); color:var(--silver); font-family:'Inter',sans-serif; font-size:14px; cursor:pointer;}
+  button.small-ghost{padding:8px 12px; border-radius:8px; background:none; border:1px dashed var(--line); color:var(--silver); font-family:'Inter',sans-serif; font-size:12.5px; cursor:pointer;}
+  #camWrap{display:none; margin-top:14px;}
+  #camWrap video{width:100%; border-radius:12px; background:#000;}
+  #qrStatus{font-size:12px; color:var(--pink-soft); margin-top:8px; font-family:'JetBrains Mono',monospace; min-height:16px;}
+  .limits-edit-row{display:flex; gap:8px; align-items:center; margin-bottom:10px;}
+  .limits-edit-row input{flex:1;}
+  .limits-edit-row .cat-name{width:110px; font-size:13px; color:var(--ink-soft); flex-shrink:0;}
+  .save-note{font-size:12px; color:var(--pink-soft); margin-top:14px; text-align:center;}
+  .del-btn{background:none;border:none;color:var(--danger);font-size:11px;cursor:pointer;font-family:'JetBrains Mono',monospace;}
+  .item-row{display:flex; gap:8px; margin-bottom:8px; align-items:center;}
+  .item-row input{flex:1;}
+  .item-row input.valcol{flex:0 0 90px;}
+  .item-row .rm{flex:0 0 30px; background:none; border:none; color:var(--danger); font-size:16px; cursor:pointer;}
+  .sum-line{font-size:12px; color:var(--ink-soft); text-align:right; margin-top:4px; font-family:'JetBrains Mono',monospace;}
+  .card-card{background:var(--paper); border-radius:var(--radius); padding:18px; margin-bottom:14px; border:1px solid var(--line); border-left:3px solid var(--silver);}
+  .card-card .apelido{font-family:'Fraunces',serif; font-weight:600; font-size:17px;}
+  .card-card .total{font-family:'JetBrains Mono',monospace; font-weight:700; font-size:22px; color:var(--pink-soft); margin:6px 0;}
+  .card-card .datas{font-size:11.5px; color:var(--ink-soft); font-family:'JetBrains Mono',monospace; margin-bottom:10px;}
+  .card-card .neg-row{display:flex; justify-content:space-between; font-size:12px; color:var(--ink-soft); padding:3px 0;}
+  .card-actions{display:flex; gap:8px; margin-top:10px;}
+  .card-actions button{flex:1;}
+  .toggle-row{display:flex; align-items:center; justify-content:space-between; margin-top:16px; background:var(--paper); border:1px solid var(--line); border-radius:10px; padding:12px 14px;}
+  .toggle-row span{font-size:14px;}
+  .switch{position:relative; width:42px; height:24px; background:var(--line); border-radius:20px; cursor:pointer; flex-shrink:0;}
+  .switch.on{background:var(--pink);}
+  .switch .dot{position:absolute; top:3px; left:3px; width:18px; height:18px; border-radius:50%; background:#fff; transition:left .2s;}
+  .switch.on .dot{left:21px;}
+  #parcelasWrap{display:none;}
+  #cartaoWrap{display:none;}
+  .search-box{margin-bottom:14px;}
+  .item-avg-result{background:var(--paper2); border-radius:10px; padding:12px 14px; margin-bottom:14px; border:1px solid var(--line);}
+  .item-avg-result .nome{font-family:'Fraunces',serif; font-weight:600;}
+  .item-avg-result .avg{color:var(--pink-soft); font-family:'JetBrains Mono',monospace; font-weight:700;}
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header class="top">
+    <div class="eyebrow">Recibo · casa</div>
+    <h1 id="headerTitle">Painel do mês</h1>
+  </header>
+
+  <!-- DASHBOARD -->
+  <section class="screen active" id="screen-dashboard">
+    <div class="section-title">Projeção (parcelas futuras)</div>
+    <div class="proj-row" id="projRow"></div>
+
+    <div class="section-title">Limites do mês</div>
+    <div id="limitCards"></div>
+
+    <div class="section-title">Últimos lançamentos</div>
+    <div id="recentList"></div>
+  </section>
+
+  <!-- LANÇAR -->
+  <section class="screen" id="screen-add">
+    <label>Quem está lançando</label>
+    <div class="choice-row" id="whoRow"></div>
+
+    <label>Data da compra</label>
+    <input type="date" id="fData">
+
+    <label>Categoria</label>
+    <select id="fCategoria"></select>
+
+    <label>Forma de pagamento</label>
+    <div class="choice-row">
+      <button type="button" class="choice-btn selected" data-pay="credito" onclick="selectPay('credito')">Crédito</button>
+      <button type="button" class="choice-btn" data-pay="debito" onclick="selectPay('debito')">Débito</button>
+      <button type="button" class="choice-btn" data-pay="pix" onclick="selectPay('pix')">Pix</button>
+    </div>
+
+    <div id="cartaoWrap">
+      <label>Cartão</label>
+      <select id="fCartao"></select>
+    </div>
+
+    <div class="toggle-row">
+      <span>Compra parcelada</span>
+      <div class="switch" id="parcSwitch" onclick="toggleParcelas()"><div class="dot"></div></div>
+    </div>
+    <div id="parcelasWrap">
+      <label>Número de parcelas</label>
+      <input type="number" id="fParcelas" min="2" value="2">
+      <label>Juros ao mês (%) — opcional</label>
+      <input type="number" id="fJuros" placeholder="Ex: 2.5" step="0.01">
+    </div>
+
+    <label>Valor total (R$) <span style="font-weight:400; color:var(--ink-soft);">— sem juros</span></label>
+    <input type="number" inputmode="decimal" id="fValor" placeholder="0,00" step="0.01">
+
+    <label>Itens da compra (opcional)</label>
+    <textarea id="pasteList" placeholder="Cole aqui a lista, ex:&#10;1x X-Bacon - R$ 28,90&#10;2x Coca-Cola 350ml - R$ 8,00"></textarea>
+    <button type="button" class="small-ghost" style="margin-top:8px;" onclick="processarColado()">Processar lista colada</button>
+    <div id="itensList"></div>
+    <button type="button" class="small-ghost" onclick="addItemManual()">+ adicionar item manual</button>
+    <div class="sum-line" id="itensSum"></div>
+    <button type="button" class="small-ghost" id="useSumBtn" style="display:none;" onclick="usarSomaItens()">usar soma dos itens como valor total</button>
+
+    <label style="margin-top:22px;">Nota fiscal (opcional)</label>
+    <button type="button" class="ghost" onclick="startScan()">📷 Escanear QR code da nota</button>
+    <div id="camWrap">
+      <video id="video" playsinline></video>
+      <div id="qrStatus">Aponte a câmera para o QR code da nota…</div>
+      <button type="button" class="ghost" onclick="stopScan()">Cancelar câmera</button>
+    </div>
+    <div id="qrCaptured" style="display:none; font-size:12px; color:var(--pink-soft); margin-top:8px;">✓ QR code capturado e anexado ao lançamento</div>
+
+    <button type="button" class="ghost" onclick="document.getElementById('photoInput').click()">📄 Ler nota ou print (foto/galeria)</button>
+    <input type="file" id="photoInput" accept="image/*" onchange="handlePhoto(event)">
+    <div id="ocrStatus" style="font-size:12px; color:var(--pink-soft); margin-top:8px; font-family:'JetBrains Mono',monospace; min-height:16px;"></div>
+
+    <button class="primary" onclick="salvarGasto()">Salvar lançamento</button>
+    <div class="save-note" id="saveNote"></div>
+  </section>
+
+  <!-- HISTÓRICO -->
+  <section class="screen" id="screen-history">
+    <div class="section-title">Buscar item / ver média</div>
+    <input class="search-box" type="text" id="itemSearch" placeholder="Ex: leite, uber, netflix…" oninput="buscarItem()">
+    <div id="itemSearchResult"></div>
+
+    <div class="section-title">Todos os lançamentos</div>
+    <div class="save-note" id="historyNote" style="color:var(--danger);"></div>
+    <div id="fullList"></div>
+  </section>
+
+  <!-- CARTÕES -->
+  <section class="screen" id="screen-cards">
+    <div class="section-title">Seus cartões</div>
+    <button type="button" class="ghost" onclick="irParaLancamentoFuturo()">📅 + lançamento detalhado (com categoria)</button>
+    <div class="save-note" id="cardsNote" style="color:var(--danger);"></div>
+    <div id="cardsList" style="margin-top:14px;"></div>
+
+    <div class="section-title">Adicionar cartão</div>
+    <label>Apelido</label>
+    <input type="text" id="newCardNome" placeholder="Ex: Nubank Camila">
+    <label>Valor atual da fatura (R$)</label>
+    <input type="number" id="newCardFatura" placeholder="0,00">
+    <label>Dia de fechamento</label>
+    <input type="number" id="newCardFechamento" min="1" max="31" placeholder="Ex: 20">
+    <label>Dia de pagamento</label>
+    <input type="number" id="newCardPagamento" min="1" max="31" placeholder="Ex: 27">
+    <button class="primary" onclick="addCartao()">Adicionar cartão</button>
+  </section>
+
+  <!-- LIMITES -->
+  <section class="screen" id="screen-limits">
+    <div class="section-title">Limite mensal total</div>
+    <input type="number" id="limTotal" placeholder="Ex: 4000">
+
+    <div class="section-title">Limite por forma de pagamento</div>
+    <div class="limits-edit-row"><span class="cat-name">Crédito</span><input type="number" id="limCredito" placeholder="R$"></div>
+    <div class="limits-edit-row"><span class="cat-name">Débito</span><input type="number" id="limDebito" placeholder="R$"></div>
+
+    <div class="section-title">Limite por categoria</div>
+    <div id="catLimitsList"></div>
+    <div class="limits-edit-row">
+      <input type="text" id="novaCatNome" placeholder="Nova categoria" style="flex:2;">
+      <input type="number" id="novaCatLimite" placeholder="R$" style="flex:1;">
+      <button type="button" class="choice-btn" style="flex:0 0 44px;" onclick="addCategoria()">+</button>
+    </div>
+
+    <button class="primary" onclick="salvarLimites()">Salvar limites</button>
+    <div class="save-note" id="limitsSaveNote"></div>
+
+    <div class="section-title">Backup dos dados</div>
+    <button type="button" class="ghost" onclick="exportarBackup()">⬇️ Exportar backup</button>
+    <button type="button" class="ghost" onclick="document.getElementById('importInput').click()">⬆️ Importar backup</button>
+    <input type="file" id="importInput" accept="application/json" style="display:none" onchange="importarBackup(event)">
+    <div id="importConfirmWrap" style="display:none; margin-top:10px;" class="receipt-itens open">
+      <label style="margin:0;">Isso vai substituir todos os dados atuais (histórico, cartões e limites) pelo conteúdo do backup. Continuar?</label>
+      <div class="card-actions">
+        <button type="button" class="small-ghost" onclick="confirmarImportacao()">Sim, restaurar</button>
+        <button type="button" class="small-ghost" onclick="cancelarImportacao()">Cancelar</button>
+      </div>
+    </div>
+    <div class="save-note" id="backupNote"></div>
+
+    <div class="section-title">Sincronizar entre os dois celulares</div>
+    <div id="syncStatus" class="save-note" style="text-align:left; color:var(--silver);"></div>
+    <div id="syncSetup" style="display:none;">
+      <label>Cole aqui a configuração do Firebase (veja o passo a passo que te mandei)</label>
+      <textarea id="syncConfigInput" placeholder='{"apiKey":"...","projectId":"...", ...}'></textarea>
+      <button type="button" class="ghost" onclick="conectarSincronizacao()">Conectar sincronização</button>
+    </div>
+    <button type="button" class="small-ghost" id="syncToggleBtn" onclick="toggleSyncSetup()">Configurar sincronização</button>
+    <button type="button" class="small-ghost" id="syncDisconnectBtn" style="display:none;" onclick="desconectarSincronizacao()">Desconectar sincronização</button>
+  </section>
+
+  <nav class="bottom">
+    <button class="active" data-screen="dashboard" onclick="showScreen('dashboard')"><span class="ic">🏠</span>Painel</button>
+    <button data-screen="add" onclick="showScreen('add')"><span class="ic">➕</span>Lançar</button>
+    <button data-screen="history" onclick="showScreen('history')"><span class="ic">🧾</span>Histórico</button>
+    <button data-screen="cards" onclick="showScreen('cards')"><span class="ic">💳</span>Cartões</button>
+    <button data-screen="limits" onclick="showScreen('limits')"><span class="ic">🎯</span>Limites</button>
+  </nav>
+</div>
+
+<script>
+let state = {
+  who: 'Eu',
+  entries: [],
+  cards: [],
+  limits: { total: 0, credito: 0, debito: 0, categorias: {} },
+  categorias: ['Mercado','Restaurante','Transporte','Casa','Lazer','Saúde','Pet','Assinaturas','Outros']
+};
+let selectedPay = 'credito';
+let pendingQR = null;
+let stream = null;
+let scanLoop = null;
+let currentItens = [];
+let parcelasOn = false;
+
+const PEOPLE = ['Eu','Esposa'];
+
+function fmt(n){ return (n||0).toLocaleString('pt-BR',{minimumFractionDigits:2, maximumFractionDigits:2}); }
+function monthKey(d){ const dt = new Date(d); return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0'); }
+function addMonths(d, n){ const dt = new Date(d); dt.setMonth(dt.getMonth()+n); return dt; }
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
+
+const STORAGE_KEY = 'recibo-gastos-casa-v1';
+const FIREBASE_CFG_KEY = 'recibo-firebase-config-v1';
+let db = null;
+let unsubscribeRemoto = null;
+let aplicandoAtualizacaoRemota = false;
+
+async function loadState(){
+  try{
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if(raw){
+      const loaded = JSON.parse(raw);
+      state = Object.assign(state, loaded);
+    }
+  }catch(e){
+    console.error('Erro ao carregar dados salvos', e);
+    document.getElementById('headerTitle').insertAdjacentHTML('afterend', '<div class="save-note" style="color:var(--danger); text-align:left; padding:0 0 10px;">Não consegui acessar o armazenamento deste navegador. Confira se o modo anônimo/privado está desativado.</div>');
+  }
+  if(!state.cards) state.cards = [];
+  ['Pet','Assinaturas'].forEach(c=>{ if(!state.categorias.includes(c)) state.categorias.push(c); });
+  render();
+  iniciarSincronizacaoSeConfigurada();
+}
+async function saveState(){
+  let ok = false;
+  try{
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    ok = true;
+  }catch(e){
+    console.error('Erro ao salvar', e);
+  }
+  if(db && !aplicandoAtualizacaoRemota){
+    try{
+      await db.collection('recibo-casa').doc('estado').set({ json: JSON.stringify(state), atualizadoEm: new Date().toISOString() });
+    }catch(e){
+      console.error('Erro ao sincronizar remotamente', e);
+    }
+  }
+  return ok;
+}
+
+/* ---------- Sincronização entre celulares (Firebase) ---------- */
+function toggleSyncSetup(){
+  const wrap = document.getElementById('syncSetup');
+  wrap.style.display = wrap.style.display==='block' ? 'none' : 'block';
+}
+function atualizarStatusSync(msg, cor){
+  const el = document.getElementById('syncStatus');
+  el.textContent = msg;
+  el.style.color = cor || 'var(--silver)';
+}
+function iniciarSincronizacaoSeConfigurada(){
+  const cfgRaw = localStorage.getItem(FIREBASE_CFG_KEY);
+  if(!cfgRaw){
+    atualizarStatusSync('Não sincronizado — cada celular guarda os dados só localmente.');
+    document.getElementById('syncDisconnectBtn').style.display = 'none';
+    return;
+  }
+  try{
+    const cfg = JSON.parse(cfgRaw);
+    if(!firebase.apps.length) firebase.initializeApp(cfg);
+    db = firebase.firestore();
+    escutarAtualizacoesRemotas();
+    document.getElementById('syncDisconnectBtn').style.display = 'block';
+  }catch(e){
+    console.error('Erro ao iniciar sincronização', e);
+    atualizarStatusSync('Configuração de sincronização inválida.', 'var(--danger)');
+  }
+}
+function escutarAtualizacoesRemotas(){
+  if(!db) return;
+  if(unsubscribeRemoto) unsubscribeRemoto();
+  atualizarStatusSync('Conectando…');
+  unsubscribeRemoto = db.collection('recibo-casa').doc('estado').onSnapshot(doc=>{
+    if(doc.exists){
+      const dados = doc.data();
+      if(dados && dados.json){
+        aplicandoAtualizacaoRemota = true;
+        state = Object.assign(state, JSON.parse(dados.json));
+        if(!state.cards) state.cards = [];
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        render();
+        aplicandoAtualizacaoRemota = false;
+      }
+    }
+    atualizarStatusSync('✓ Sincronizado — os dois celulares compartilham o mesmo histórico.', 'var(--pink-soft)');
+  }, err=>{
+    console.error('Erro na sincronização em tempo real', err);
+    atualizarStatusSync('Erro na sincronização — verifique a configuração e a conexão.', 'var(--danger)');
+  });
+}
+function parseConfigFirebase(raw){
+  let texto = raw.trim();
+  // remove "const firebaseConfig =" / "var firebaseConfig =" / "let firebaseConfig =" se vierem coladas junto
+  texto = texto.replace(/^(const|var|let)\s+firebaseConfig\s*=\s*/i, '');
+  // remove ponto e vírgula final
+  texto = texto.replace(/;\s*$/, '');
+  texto = texto.trim();
+  // garante que está envolto em chaves { }
+  if(!texto.startsWith('{')) texto = '{' + texto;
+  if(!texto.endsWith('}')) texto = texto + '}';
+  // avalia como objeto JS (aceita chaves sem aspas, como o Firebase mostra) — entrada é só o que a própria pessoa colou
+  return Function('"use strict"; return (' + texto + ');')();
+}
+
+async function conectarSincronizacao(){
+  const raw = document.getElementById('syncConfigInput').value.trim();
+  if(!raw) return;
+  try{
+    const cfg = parseConfigFirebase(raw);
+    if(!cfg || !cfg.apiKey || !cfg.projectId){
+      atualizarStatusSync('Essa configuração parece incompleta — confira se copiou o objeto inteiro (de apiKey até appId).', 'var(--danger)');
+      return;
+    }
+    localStorage.setItem(FIREBASE_CFG_KEY, JSON.stringify(cfg));
+    if(!firebase.apps.length) firebase.initializeApp(cfg);
+    db = firebase.firestore();
+    // primeira conexão: envia o histórico atual deste celular pro banco compartilhado
+    await db.collection('recibo-casa').doc('estado').set({ json: JSON.stringify(state), atualizadoEm: new Date().toISOString() }, { merge: false });
+    escutarAtualizacoesRemotas();
+    document.getElementById('syncSetup').style.display = 'none';
+  }catch(e){
+    console.error('Erro ao conectar sincronização', e);
+    atualizarStatusSync('Não consegui ler essa configuração — confira se colou o bloco inteiro, de apiKey até appId.', 'var(--danger)');
+  }
+}
+function desconectarSincronizacao(){
+  if(unsubscribeRemoto) unsubscribeRemoto();
+  db = null;
+  localStorage.removeItem(FIREBASE_CFG_KEY);
+  document.getElementById('syncDisconnectBtn').style.display = 'none';
+  atualizarStatusSync('Não sincronizado — cada celular guarda os dados só localmente.');
+}
+
+function showScreen(name){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen-'+name).classList.add('active');
+  document.querySelectorAll('nav.bottom button').forEach(b=>b.classList.toggle('active', b.dataset.screen===name));
+  const titles = {dashboard:'Painel do mês', add:'Novo lançamento', history:'Histórico completo', cards:'Gestão de cartões', limits:'Configurar limites'};
+  document.getElementById('headerTitle').textContent = titles[name];
+  if(name==='add'){ stopScan(); if(!document.getElementById('fData').value) setDataHoje(); }
+  if(name==='limits') renderLimitsForm();
+  if(name==='cards') renderCards();
+}
+function setDataHoje(){
+  const hoje = new Date();
+  document.getElementById('fData').value = hoje.toISOString().slice(0,10);
+}
+function irParaLancamentoFuturo(preselectCardId){
+  showScreen('add');
+  selectPay('credito');
+  if(preselectCardId){
+    setTimeout(()=>{ const sel=document.getElementById('fCartao'); if(sel) sel.value = preselectCardId; }, 0);
+  }
+  const dInput = document.getElementById('fData');
+  const proxMes = addMonths(new Date(), 1);
+  dInput.value = proxMes.toISOString().slice(0,10);
+  dInput.focus();
+}
+
+function selectPay(p){
+  selectedPay = p;
+  document.querySelectorAll('.choice-btn[data-pay]').forEach(b=>{ b.classList.toggle('selected', b.dataset.pay===p); });
+  document.getElementById('cartaoWrap').style.display = (p==='credito') ? 'block' : 'none';
+  if(p==='credito') renderCartaoSelect();
+}
+
+function toggleParcelas(){
+  parcelasOn = !parcelasOn;
+  document.getElementById('parcSwitch').classList.toggle('on', parcelasOn);
+  document.getElementById('parcelasWrap').style.display = parcelasOn ? 'block' : 'none';
+}
+
+function renderWhoRow(){
+  const row = document.getElementById('whoRow');
+  row.innerHTML = '';
+  PEOPLE.forEach(p=>{
+    const b = document.createElement('button');
+    b.type='button'; b.className='choice-btn'+(state.who===p?' selected':'');
+    b.textContent = p;
+    b.onclick = ()=>{ state.who = p; renderWhoRow(); };
+    row.appendChild(b);
+  });
+}
+function renderCategoriaSelect(){
+  const sel = document.getElementById('fCategoria');
+  sel.innerHTML = state.categorias.map(c=>`<option value="${c}">${c}</option>`).join('');
+}
+function renderCartaoSelect(){
+  const sel = document.getElementById('fCartao');
+  if(!state.cards.length){
+    sel.innerHTML = '<option value="">Nenhum cartão cadastrado (vá em Cartões pra adicionar)</option>';
+    return;
+  }
+  sel.innerHTML = '<option value="">Nenhum</option>' + state.cards.map(c=>`<option value="${c.id}">${c.apelido}</option>`).join('');
+}
+
+/* ---------- Itens ---------- */
+function renderItensList(){
+  const wrap = document.getElementById('itensList');
+  wrap.innerHTML = currentItens.map((it,i)=>`
+    <div class="item-row">
+      <input type="text" value="${it.nome.replace(/"/g,'&quot;')}" onchange="currentItens[${i}].nome=this.value">
+      <input type="number" class="valcol" value="${it.valor}" step="0.01" onchange="currentItens[${i}].valor=parseFloat(this.value)||0; renderItensList();">
+      <button class="rm" onclick="currentItens.splice(${i},1); renderItensList();">×</button>
+    </div>
+  `).join('');
+  const soma = currentItens.reduce((s,it)=>s+(it.valor||0),0);
+  document.getElementById('itensSum').textContent = currentItens.length ? `Soma dos itens: R$ ${fmt(soma)}` : '';
+  document.getElementById('useSumBtn').style.display = currentItens.length ? 'block' : 'none';
+}
+function addItemManual(){ currentItens.push({nome:'', valor:0}); renderItensList(); }
+function usarSomaItens(){
+  const soma = currentItens.reduce((s,it)=>s+(it.valor||0),0);
+  document.getElementById('fValor').value = soma.toFixed(2);
+}
+function parseItemList(texto){
+  const linhas = texto.split('\n').map(l=>l.trim()).filter(Boolean);
+  const itens = [];
+  const regex = /^(?:(\d+)\s*x\s*)?(.+?)[\s\-–]*R?\$?\s*(\d{1,3}(?:\.\d{3})*,\d{2})\s*$/i;
+  linhas.forEach(l=>{
+    const m = l.match(regex);
+    if(!m) return;
+    let nome = m[2].trim().replace(/[-–]+$/,'').trim();
+    if(/^total(\s|$)/i.test(nome) || /subtotal/i.test(nome)) return;
+    if(m[1]) nome = m[1]+'x '+nome;
+    const valor = parseFloat(m[3].replace(/\./g,'').replace(',','.'));
+    itens.push({nome, valor});
+  });
+  return itens;
+}
+function processarColado(){
+  const texto = document.getElementById('pasteList').value;
+  const itens = parseItemList(texto);
+  if(!itens.length){
+    document.getElementById('itensSum').textContent = 'Não consegui reconhecer itens nesse texto. Tente adicionar manualmente.';
+    return;
+  }
+  currentItens = currentItens.concat(itens);
+  renderItensList();
+}
+
+/* ---------- OCR foto/print ---------- */
+const CATEGORY_KEYWORDS = {
+  'Mercado': ['mercado','supermercado','hortifruti','atacad','padaria','acougue','açougue','feira','sacolao','sacolão','hipermercado'],
+  'Restaurante': ['restaurante','lanchonete','pizzaria','hamburgu','ifood','lanches','churrascaria','sushi','cafe','café','padoca','doceria'],
+  'Transporte': ['posto','combustivel','combustível','gasolina','uber','99 ','estacionamento','pedagio','pedágio','oficina','autopeças','autopecas'],
+  'Casa': ['material de construcao','material de construção','papelaria','eletro','moveis','móveis','decoracao','decoração'],
+  'Lazer': ['cinema','ingresso','livraria','streaming','parque','show','teatro','just dance'],
+  'Saúde': ['farmacia','farmácia','drogaria','clinica','clínica','laboratorio','laboratório','hospital'],
+  'Pet': ['petshop','pet shop','veterinaria','veterinária','racao','ração','petz','cobasi'],
+  'Assinaturas': ['spotify','netflix','disney','amazon prime','hbo','youtube premium','just dance now','apple music','deezer']
+};
+function guessCategoria(texto){
+  const t = texto.toLowerCase();
+  for(const cat in CATEGORY_KEYWORDS){ if(CATEGORY_KEYWORDS[cat].some(kw=>t.includes(kw))) return cat; }
+  return 'Outros';
+}
+function extrairValor(texto){
+  const linhas = texto.split('\n');
+  const linhasTotal = linhas.filter(l=>/total/i.test(l));
+  const regexValor = /(\d{1,3}(?:\.\d{3})*,\d{2})/g;
+  let candidatos = [];
+  const fontes = linhasTotal.length ? linhasTotal : linhas;
+  fontes.forEach(l=>{ const m = l.match(regexValor); if(m) candidatos = candidatos.concat(m); });
+  if(!candidatos.length){ const mAll = texto.match(regexValor); if(mAll) candidatos = mAll; }
+  if(!candidatos.length) return null;
+  const nums = candidatos.map(c=>parseFloat(c.replace(/\./g,'').replace(',','.')));
+  return Math.max(...nums);
+}
+async function handlePhoto(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const status = document.getElementById('ocrStatus');
+  status.textContent = 'Lendo a imagem, aguarde…';
+  try{
+    const { data } = await Tesseract.recognize(file, 'por');
+    const texto = data.text || '';
+    const valor = extrairValor(texto);
+    const categoria = guessCategoria(texto);
+    const itensLidos = parseItemList(texto);
+    if(valor) document.getElementById('fValor').value = valor.toFixed(2);
+    document.getElementById('fCategoria').value = categoria;
+    if(itensLidos.length){ currentItens = currentItens.concat(itensLidos); renderItensList(); }
+    status.textContent = (valor ? `Lido: R$ ${fmt(valor)} · ` : 'Valor não identificado · ') + `categoria sugerida "${categoria}"` + (itensLidos.length ? ` · ${itensLidos.length} item(ns) reconhecido(s)` : '') + ' — confira antes de salvar.';
+  }catch(e){
+    status.textContent = 'Não consegui ler a imagem. Tente uma foto mais nítida ou preencha manualmente.';
+  }
+}
+
+/* ---------- QR ---------- */
+async function startScan(){
+  document.getElementById('camWrap').style.display = 'block';
+  const video = document.getElementById('video');
+  try{
+    stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    video.srcObject = stream; await video.play();
+    const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
+    scanLoop = setInterval(()=>{
+      if(video.readyState !== video.HAVE_ENOUGH_DATA) return;
+      canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const imgData = ctx.getImageData(0,0,canvas.width,canvas.height);
+      const code = jsQR(imgData.data, imgData.width, imgData.height);
+      if(code){
+        pendingQR = code.data;
+        document.getElementById('qrStatus').textContent = 'QR code lido com sucesso!';
+        document.getElementById('qrCaptured').style.display = 'block';
+        stopScan();
+      }
+    }, 350);
+  }catch(e){ document.getElementById('qrStatus').textContent = 'Não foi possível acessar a câmera. Verifique a permissão.'; }
+}
+function stopScan(){
+  if(scanLoop){ clearInterval(scanLoop); scanLoop=null; }
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); stream=null; }
+  document.getElementById('camWrap').style.display = 'none';
+}
+
+/* ---------- Salvar lançamento ---------- */
+async function salvarGasto(){
+  const valor = parseFloat(document.getElementById('fValor').value);
+  if(!valor || valor<=0){ document.getElementById('saveNote').textContent = 'Digite um valor válido.'; return; }
+  const parcelas = parcelasOn ? Math.max(2, parseInt(document.getElementById('fParcelas').value)||2) : 1;
+  const juros = parcelasOn ? (parseFloat(document.getElementById('fJuros').value)||0) : 0;
+  const cartaoId = (selectedPay==='credito') ? (document.getElementById('fCartao').value || null) : null;
+  const dataStr = document.getElementById('fData').value;
+  const dataCompra = dataStr ? new Date(dataStr+'T12:00:00').toISOString() : new Date().toISOString();
+  const entry = {
+    id: uid(), tipo: 'compra', valorTotal: valor, parcelas, juros, categoria: document.getElementById('fCategoria').value,
+    pagamento: selectedPay, quem: state.who, data: dataCompra,
+    cartaoId, itens: currentItens.filter(it=>it.nome), qr: pendingQR || null
+  };
+  state.entries.unshift(entry);
+  state.entries.sort((a,b)=> new Date(b.data) - new Date(a.data));
+  document.getElementById('saveNote').textContent = 'Salvando…';
+  const ok = await saveState();
+  if(!ok){
+    state.entries = state.entries.filter(e=>e.id!==entry.id);
+    document.getElementById('saveNote').textContent = 'Não consegui salvar — sem conexão com o servidor no momento. Tenta de novo.';
+    return;
+  }
+  document.getElementById('fValor').value = '';
+  document.getElementById('fJuros').value = '';
+  document.getElementById('pasteList').value = '';
+  pendingQR = null; currentItens = []; renderItensList();
+  parcelasOn = false; document.getElementById('parcSwitch').classList.remove('on'); document.getElementById('parcelasWrap').style.display='none';
+  document.getElementById('qrCaptured').style.display = 'none';
+  document.getElementById('ocrStatus').textContent = '';
+  setDataHoje();
+  document.getElementById('saveNote').textContent = 'Lançamento salvo ✓';
+  setTimeout(()=>{ document.getElementById('saveNote').textContent=''; }, 2000);
+  render();
+}
+
+/* ---------- Parcelas / projeção ---------- */
+function instanciasParcelas(){
+  const out = [];
+  state.entries.forEach(e=>{
+    const tipo = e.tipo || 'compra';
+    if(tipo==='negociacao'){
+      // compatibilidade com registros antigos de negociação (recurso removido)
+      out.push({ entry:e, k:1, total:1, valor:e.valorTotal, mesKey: monthKey(e.data) });
+      return;
+    }
+    const p = e.parcelas||1;
+    const jurosPct = e.juros||0;
+    const totalComJuros = jurosPct>0 ? e.valorTotal * (1 + (jurosPct/100)*p) : e.valorTotal;
+    const valorParcela = totalComJuros/p;
+    const card = e.cartaoId ? state.cards.find(c=>c.id===e.cartaoId) : null;
+    let mesBase = new Date(e.data);
+    if(tipo==='compra' && card && card.fechamento){
+      if(mesBase.getDate() > card.fechamento) mesBase = addMonths(mesBase,1);
+    }
+    for(let k=1;k<=p;k++){
+      const mes = addMonths(mesBase, k-1);
+      out.push({ entry:e, k, total:p, valor:valorParcela, mesKey: monthKey(mes) });
+    }
+  });
+  return out;
+}
+
+function renderProjecao(){
+  const insts = instanciasParcelas();
+  const hoje = new Date();
+  const html = [0,1,2].map(offset=>{
+    const mes = addMonths(hoje, offset);
+    const mk = monthKey(mes);
+    const soma = insts.filter(i=>i.mesKey===mk).reduce((s,i)=>s+i.valor,0);
+    const label = mes.toLocaleDateString('pt-BR',{month:'long'});
+    return `<div class="proj-card"><div class="mlabel">${offset===0?'este mês':label}</div><div class="mval">R$ ${fmt(soma)}</div></div>`;
+  }).join('');
+  document.getElementById('projRow').innerHTML = html;
+}
+
+function currentMonthValorFor(filterFn){
+  const insts = instanciasParcelas();
+  const mk = monthKey(new Date());
+  return insts.filter(i=>i.mesKey===mk && filterFn(i.entry)).reduce((s,i)=>s+i.valor,0);
+}
+
+function renderDashboard(){
+  renderProjecao();
+  const total = currentMonthValorFor(()=>true);
+  const credito = currentMonthValorFor(e=>e.pagamento==='credito');
+  const debito = currentMonthValorFor(e=>e.pagamento==='debito');
+
+  const cards = [];
+  cards.push(limitCardHTML('Total do mês', total, state.limits.total));
+  if(state.limits.credito>0) cards.push(limitCardHTML('Crédito', credito, state.limits.credito));
+  if(state.limits.debito>0) cards.push(limitCardHTML('Débito', debito, state.limits.debito));
+  Object.keys(state.limits.categorias||{}).forEach(cat=>{
+    const lim = state.limits.categorias[cat];
+    if(lim>0){
+      const gasto = currentMonthValorFor(e=>e.categoria===cat);
+      cards.push(limitCardHTML(cat, gasto, lim));
+    }
+  });
+  document.getElementById('limitCards').innerHTML = cards.join('') || '<div class="empty-state">Configure seus limites na aba Limites.</div>';
+
+  const recent = state.entries.slice(0,5);
+  document.getElementById('recentList').innerHTML = recent.length ? recent.map(e=>receiptHTML(e)).join('') : '<div class="empty-state">Nenhum gasto lançado ainda.</div>';
+}
+
+function limitCardHTML(label, spent, limit){
+  const pct = limit>0 ? Math.min(100,(spent/limit)*100) : 0;
+  const cls = limit>0 && spent>limit ? 'over' : (pct>80 ? 'warnbar' : '');
+  const subtitle = limit>0 ? `de R$ ${fmt(limit)}` : 'sem limite definido';
+  return `<div class="limit-card"><div class="row-top"><div><div class="label">${label}</div><div class="sub">${subtitle}</div></div><div class="amounts"><div class="spent">R$ ${fmt(spent)}</div></div></div><div class="bar-track"><div class="bar-fill ${cls}" style="width:${limit>0?pct:0}%"></div></div></div>`;
+}
+
+function entryLabel(e){
+  if(e.tipo==='cartaoLivre') return e.nota || 'Lançamento de cartão';
+  if(e.tipo==='negociacao') return e.nota || (e.negTipo==='juros' ? 'Juros/acréscimo de fatura' : 'Desconto negociado');
+  return e.categoria;
+}
+function entryValueHTML(e){
+  if(e.tipo==='negociacao'){
+    const sinal = e.valorTotal<0 ? '−' : '+';
+    return `${sinal} R$ ${fmt(Math.abs(e.valorTotal))}`;
+  }
+  return `R$ ${fmt(e.valorTotal)}`;
+}
+function entryTagsHTML(e){
+  const p = e.parcelas||1;
+  const jurosPct = e.juros||0;
+  const totalComJuros = jurosPct>0 ? e.valorTotal * (1 + (jurosPct/100)*p) : e.valorTotal;
+  const parcTag = p>1 ? `<span class="tag parc">${p}x de R$ ${fmt(totalComJuros/p)}${jurosPct>0?' · '+jurosPct+'% a.m.':''}</span>` : '';
+  if(e.tipo==='cartaoLivre') return '<span class="tag parc">lançamento avulso</span>' + parcTag;
+  if(e.tipo==='negociacao') return `<span class="tag parc">${e.negTipo==='juros'?'juros da fatura':'negociação'}</span>`;
+  return `<span class="tag ${e.pagamento!=='credito'?e.pagamento:''}">${e.pagamento}</span>${parcTag}`;
+}
+
+function receiptHTML(e){
+  const d = new Date(e.data);
+  const dataStr = d.toLocaleDateString('pt-BR', {day:'2-digit', month:'2-digit'});
+  const cardNome = e.cartaoId ? (state.cards.find(c=>c.id===e.cartaoId)||{}).apelido : null;
+  const itensHtml = (e.itens&&e.itens.length) ? `<div class="receipt-itens" id="itens-${e.id}">${e.itens.map(it=>`<div class="receipt-item-row"><span>${it.nome}</span><span>R$ ${fmt(it.valor)}</span></div>`).join('')}</div>` : '';
+  return `
+  <div class="receipt" ${e.itens&&e.itens.length?`onclick="toggleItens('${e.id}')"`:''}>
+    <div class="receipt-row">
+      <div class="receipt-left">
+        <span class="receipt-cat">${entryLabel(e)}</span>
+        <span class="receipt-meta">${dataStr} · ${e.quem}${cardNome?' · '+cardNome:''}${e.qr?' · 🧾 QR':''}</span>
+        <div>${entryTagsHTML(e)}</div>
+      </div>
+      <span class="receipt-value">${entryValueHTML(e)}</span>
+    </div>
+    ${itensHtml}
+  </div>`;
+}
+function toggleItens(id){ const el = document.getElementById('itens-'+id); if(el) el.classList.toggle('open'); }
+
+function renderHistory(){
+  const list = document.getElementById('fullList');
+  if(!state.entries.length){ list.innerHTML = '<div class="empty-state">Nenhum lançamento ainda.</div>'; return; }
+  list.innerHTML = state.entries.map(e=>{
+    const d = new Date(e.data);
+    const cardNome = e.cartaoId ? (state.cards.find(c=>c.id===e.cartaoId)||{}).apelido : null;
+    const itensHtml = (e.itens&&e.itens.length) ? `<div class="receipt-itens" id="hitens-${e.id}">${e.itens.map(it=>`<div class="receipt-item-row"><span>${it.nome}</span><span>R$ ${fmt(it.valor)}</span></div>`).join('')}</div>` : '';
+    const semCartaoHtml = (e.pagamento==='credito' && !e.cartaoId && (e.tipo||'compra')==='compra' && state.cards.length) ? `
+      <div class="receipt-itens open" style="margin-top:10px;">
+        <label style="margin:0 0 6px;">Sem cartão definido — atribuir agora:</label>
+        <select onchange="atribuirCartao('${e.id}', this.value)">
+          <option value="">Escolher cartão…</option>
+          ${state.cards.map(c=>`<option value="${c.id}">${c.apelido}</option>`).join('')}
+        </select>
+      </div>` : '';
+    return `
+    <div class="receipt">
+      <div class="receipt-row" ${e.itens&&e.itens.length?`onclick="toggleHItens('${e.id}')" style="cursor:pointer;"`:''}>
+        <div class="receipt-left">
+          <span class="receipt-cat">${entryLabel(e)}</span>
+          <span class="receipt-meta">${d.toLocaleDateString('pt-BR')} · ${e.quem}${cardNome?' · '+cardNome:''}${e.qr?' · 🧾 QR':''}</span>
+          <div>${entryTagsHTML(e)}</div>
+        </div>
+        <div style="text-align:right;">
+          <div class="receipt-value">${entryValueHTML(e)}</div>
+          <button class="del-btn" onclick="excluirGasto('${e.id}')">excluir</button>
+        </div>
+      </div>
+      ${itensHtml}
+      ${semCartaoHtml}
+    </div>`;
+  }).join('');
+}
+async function atribuirCartao(entryId, cardId){
+  if(!cardId) return;
+  const entry = state.entries.find(e=>e.id===entryId);
+  if(!entry) return;
+  const antigo = entry.cartaoId;
+  entry.cartaoId = cardId;
+  const ok = await saveState();
+  const note = document.getElementById('historyNote');
+  if(!ok){
+    entry.cartaoId = antigo;
+    note.textContent = 'Não consegui salvar — sem conexão com o servidor no momento. Tenta de novo.';
+    setTimeout(()=>{ note.textContent=''; }, 5000);
+  }
+  renderHistory();
+  renderCards();
+}
+function toggleHItens(id){ const el = document.getElementById('hitens-'+id); if(el) el.classList.toggle('open'); }
+
+async function excluirGasto(id){
+  const removido = state.entries.find(e=>e.id===id);
+  const idx = state.entries.indexOf(removido);
+  state.entries = state.entries.filter(e=>e.id!==id);
+  const ok = await saveState();
+  if(!ok){
+    if(removido) state.entries.splice(idx, 0, removido);
+    const note = document.getElementById('historyNote');
+    note.textContent = 'Não consegui excluir — sem conexão com o servidor no momento. Tenta de novo.';
+    setTimeout(()=>{ note.textContent=''; }, 5000);
+  }
+  render();
+}
+
+function buscarItem(){
+  const q = document.getElementById('itemSearch').value.trim().toLowerCase();
+  const box = document.getElementById('itemSearchResult');
+  if(!q){ box.innerHTML=''; return; }
+  const ocorrencias = [];
+  state.entries.forEach(e=>{ (e.itens||[]).forEach(it=>{ if(it.nome.toLowerCase().includes(q)) ocorrencias.push({...it, data:e.data}); }); });
+  if(!ocorrencias.length){ box.innerHTML = '<div class="empty-state">Nenhum item encontrado com esse nome.</div>'; return; }
+  const media = ocorrencias.reduce((s,o)=>s+o.valor,0)/ocorrencias.length;
+  box.innerHTML = `<div class="item-avg-result"><div class="nome">"${q}" — ${ocorrencias.length} compra(s)</div><div class="avg">média: R$ ${fmt(media)}</div></div>` +
+    ocorrencias.slice(0,10).map(o=>`<div class="receipt-item-row" style="padding:6px 4px;"><span>${new Date(o.data).toLocaleDateString('pt-BR')} · ${o.nome}</span><span>R$ ${fmt(o.valor)}</span></div>`).join('');
+}
+
+/* ---------- Cartões ---------- */
+let cardEditOpen = {}; // { [cardId]: 'valor' | 'avulso' | 'del' | null }
+let avulsoParcelaOn = {}; // { [cardId]: true|false }
+
+function cicloKey(date, fechamento){
+  let d = new Date(date);
+  if(fechamento && d.getDate() > fechamento) d = addMonths(d,1);
+  return monthKey(d);
+}
+function proximoVencimento(card){
+  if(!card.pagamento) return null;
+  const mk = cicloKey(new Date(), card.fechamento);
+  const [y,m] = mk.split('-').map(Number); // m = 1-indexed mês do ciclo
+  let vencMonthIndex = m-1; // 0-indexed
+  if(card.fechamento && card.pagamento <= card.fechamento) vencMonthIndex += 1;
+  return new Date(y, vencMonthIndex, card.pagamento);
+}
+function valorFatura(card, mk, insts){
+  const cicloAtualKey = cicloKey(new Date(), card.fechamento);
+  if(mk !== cicloAtualKey){
+    return insts.filter(i=>i.entry.cartaoId===card.id && i.mesKey===mk).reduce((s,i)=>s+i.valor,0);
+  }
+  const baseData = card.faturaBaseData ? new Date(card.faturaBaseData) : null;
+  const somaCompras = insts.filter(i=> i.entry.cartaoId===card.id && i.mesKey===mk && (i.entry.tipo||'compra')==='compra' && (!baseData || new Date(i.entry.data) >= baseData)).reduce((s,i)=>s+i.valor,0);
+  const somaAvulso = insts.filter(i=> i.entry.cartaoId===card.id && i.mesKey===mk && i.entry.tipo==='cartaoLivre' && (!baseData || new Date(i.entry.data) >= baseData)).reduce((s,i)=>s+i.valor,0);
+  return (card.faturaBase||0) + somaCompras + somaAvulso;
+}
+function totalCicloAtual(card, insts){ return valorFatura(card, cicloKey(new Date(), card.fechamento), insts); }
+function inputMonthParaData(valorInput, fallbackMk){
+  const mk = valorInput || fallbackMk;
+  const [y,m] = mk.split('-').map(Number);
+  return new Date(y, m-1, 1, 12);
+}
+
+function renderCards(){
+  const wrap = document.getElementById('cardsList');
+  if(!state.cards.length){ wrap.innerHTML = '<div class="empty-state">Nenhum cartão cadastrado ainda.</div>'; return; }
+  const insts = instanciasParcelas();
+  wrap.innerHTML = state.cards.map(c=>{
+    const cicloAtualKey = cicloKey(new Date(), c.fechamento);
+    const totalAtual = valorFatura(c, cicloAtualKey, insts);
+    const venc = proximoVencimento(c);
+    const modo = cardEditOpen[c.id];
+    const parcOn = !!avulsoParcelaOn[c.id];
+
+    let editPanel = '';
+    if(modo==='valor'){
+      editPanel = `
+      <div class="receipt-itens open">
+        <label style="margin:0 0 6px;">Valor corrigido deste mês (R$)</label>
+        <input type="number" id="editValor-${c.id}" value="${totalAtual.toFixed(2)}" step="0.01">
+        <div class="save-note" style="text-align:left; margin-top:8px;">Negociou um desconto? É só digitar o valor já reduzido aqui.</div>
+        <div class="card-actions">
+          <button class="small-ghost" onclick="salvarValorMes('${c.id}')">Salvar</button>
+          <button class="small-ghost" onclick="fecharEdicao('${c.id}')">Cancelar</button>
+        </div>
+      </div>`;
+    } else if(modo==='avulso'){
+      editPanel = `
+      <div class="receipt-itens open">
+        <label style="margin:0 0 6px;">Valor (R$)</label>
+        <input type="number" id="editAvulsoValor-${c.id}" placeholder="0,00" step="0.01">
+        <label>Mês inicial</label>
+        <input type="month" id="editAvulsoMes-${c.id}" value="${cicloAtualKey}">
+        <label>Observação (opcional)</label>
+        <input type="text" id="editAvulsoNota-${c.id}" placeholder="Ex: saldo negociado da fatura anterior">
+        <div class="toggle-row">
+          <span>Parcelar esse valor</span>
+          <div class="switch ${parcOn?'on':''}" onclick="toggleAvulsoParcela('${c.id}')"><div class="dot"></div></div>
+        </div>
+        ${parcOn ? `
+        <label>Número de parcelas</label>
+        <input type="number" id="editAvulsoParcelas-${c.id}" min="2" value="2">
+        <label>Juros ao mês (%) — opcional</label>
+        <input type="number" id="editAvulsoJuros-${c.id}" placeholder="Ex: 2.5" step="0.01">
+        ` : ''}
+        <div class="card-actions">
+          <button class="small-ghost" onclick="salvarValorCheio('${c.id}')">Lançar</button>
+          <button class="small-ghost" onclick="fecharEdicao('${c.id}')">Cancelar</button>
+        </div>
+      </div>`;
+    } else if(modo==='del'){
+      editPanel = `
+      <div class="receipt-itens open">
+        <label style="margin:0;">Remover este cartão? Os lançamentos já feitos continuam no histórico.</label>
+        <div class="card-actions">
+          <button class="small-ghost" onclick="confirmarRemoverCartao('${c.id}')" style="color:var(--danger); border-color:var(--danger);">Sim, remover</button>
+          <button class="small-ghost" onclick="fecharEdicao('${c.id}')">Cancelar</button>
+        </div>
+      </div>`;
+    }
+
+    return `
+    <div class="card-card">
+      <div class="apelido">${c.apelido}</div>
+      <div class="total">R$ ${fmt(totalAtual)}</div>
+      <div class="datas">fecha dia ${c.fechamento||'—'} · paga dia ${c.pagamento||'—'}${venc?(' · próximo vencimento: '+venc.toLocaleDateString('pt-BR')):''}</div>
+      <div class="card-actions">
+        <button class="small-ghost" onclick="abrirEdicao('${c.id}','valor')">Editar valor deste mês</button>
+        <button class="small-ghost" onclick="abrirEdicao('${c.id}','avulso')">+ valor cheio</button>
+        <button class="small-ghost" onclick="abrirEdicao('${c.id}','del')">Remover</button>
+      </div>
+      ${editPanel}
+    </div>`;
+  }).join('');
+}
+
+function abrirEdicao(id, modo){ cardEditOpen[id] = modo; avulsoParcelaOn[id] = false; renderCards(); }
+function fecharEdicao(id){ cardEditOpen[id] = null; renderCards(); }
+function toggleAvulsoParcela(id){ avulsoParcelaOn[id] = !avulsoParcelaOn[id]; renderCards(); }
+
+function mostrarErroCartao(msg){
+  const note = document.getElementById('cardsNote');
+  note.textContent = msg;
+  setTimeout(()=>{ if(note.textContent===msg) note.textContent=''; }, 6000);
+}
+
+async function salvarValorMes(id){
+  const card = state.cards.find(c=>c.id===id); if(!card) return;
+  const val = parseFloat(document.getElementById('editValor-'+id).value);
+  const faturaBaseAntiga = card.faturaBase, faturaBaseDataAntiga = card.faturaBaseData;
+  card.faturaBase = isNaN(val) ? 0 : val;
+  card.faturaBaseData = new Date().toISOString();
+  const ok = await saveState();
+  if(!ok){
+    card.faturaBase = faturaBaseAntiga; card.faturaBaseData = faturaBaseDataAntiga;
+    mostrarErroCartao('Não consegui salvar — sem conexão com o servidor no momento. Tenta de novo em alguns segundos.');
+    renderCards();
+    return;
+  }
+  cardEditOpen[id] = null;
+  render();
+}
+async function salvarValorCheio(id){
+  const card = state.cards.find(c=>c.id===id); if(!card) return;
+  const valor = parseFloat(document.getElementById('editAvulsoValor-'+id).value);
+  if(!valor || valor<=0) return;
+  const mesInput = document.getElementById('editAvulsoMes-'+id).value;
+  const cicloAtualKey = cicloKey(new Date(), card.fechamento);
+  const dataAlvo = inputMonthParaData(mesInput, cicloAtualKey);
+  const nota = document.getElementById('editAvulsoNota-'+id).value.trim();
+  const parcOn = !!avulsoParcelaOn[id];
+  const parcelas = parcOn ? Math.max(2, parseInt(document.getElementById('editAvulsoParcelas-'+id).value)||2) : 1;
+  const juros = parcOn ? (parseFloat(document.getElementById('editAvulsoJuros-'+id).value)||0) : 0;
+  const entry = { id: uid(), tipo:'cartaoLivre', valorTotal: valor, parcelas, juros, categoria:null, pagamento:'credito',
+    quem: state.who, data: dataAlvo.toISOString(), cartaoId: id, itens: [], nota: nota || null };
+  state.entries.unshift(entry);
+  state.entries.sort((a,b)=> new Date(b.data) - new Date(a.data));
+  const ok = await saveState();
+  if(!ok){
+    state.entries = state.entries.filter(e=>e.id!==entry.id);
+    mostrarErroCartao('Não consegui salvar — sem conexão com o servidor no momento. Tenta de novo em alguns segundos.');
+    return;
+  }
+  cardEditOpen[id] = null; avulsoParcelaOn[id] = false;
+  render();
+}
+async function confirmarRemoverCartao(id){
+  const cardRemovido = state.cards.find(c=>c.id===id);
+  const idx = state.cards.indexOf(cardRemovido);
+  state.cards = state.cards.filter(c=>c.id!==id);
+  const ok = await saveState();
+  if(!ok){
+    if(cardRemovido) state.cards.splice(idx, 0, cardRemovido);
+    mostrarErroCartao('Não consegui remover — sem conexão com o servidor no momento. Tenta de novo em alguns segundos.');
+    renderCards();
+    return;
+  }
+  delete cardEditOpen[id];
+  render();
+}
+async function addCartao(){
+  const apelido = document.getElementById('newCardNome').value.trim();
+  const fatura = parseFloat(document.getElementById('newCardFatura').value)||0;
+  const fechamento = parseInt(document.getElementById('newCardFechamento').value)||null;
+  const pagamento = parseInt(document.getElementById('newCardPagamento').value)||null;
+  if(!apelido) return;
+  const novoCartao = { id: uid(), apelido, faturaBase: fatura, faturaBaseData: new Date().toISOString(), fechamento, pagamento };
+  state.cards.push(novoCartao);
+  const ok = await saveState();
+  if(!ok){
+    state.cards = state.cards.filter(c=>c.id!==novoCartao.id);
+    mostrarErroCartao('Não consegui salvar o cartão — sem conexão com o servidor no momento. Tenta de novo em alguns segundos.');
+    return;
+  }
+  document.getElementById('newCardNome').value=''; document.getElementById('newCardFatura').value='';
+  document.getElementById('newCardFechamento').value=''; document.getElementById('newCardPagamento').value='';
+  renderCards();
+}
+
+/* ---------- Limites ---------- */
+function renderLimitsForm(){
+  document.getElementById('limTotal').value = state.limits.total || '';
+  document.getElementById('limCredito').value = state.limits.credito || '';
+  document.getElementById('limDebito').value = state.limits.debito || '';
+  const wrap = document.getElementById('catLimitsList');
+  wrap.innerHTML = state.categorias.map(cat=>`
+    <div class="limits-edit-row"><span class="cat-name">${cat}</span><input type="number" data-cat="${cat}" class="cat-limit-input" value="${state.limits.categorias[cat]||''}" placeholder="R$"></div>
+  `).join('');
+}
+function addCategoria(){
+  const nome = document.getElementById('novaCatNome').value.trim();
+  const lim = parseFloat(document.getElementById('novaCatLimite').value) || 0;
+  if(!nome) return;
+  if(!state.categorias.includes(nome)) state.categorias.push(nome);
+  state.limits.categorias[nome] = lim;
+  document.getElementById('novaCatNome').value=''; document.getElementById('novaCatLimite').value='';
+  renderLimitsForm(); renderCategoriaSelect();
+}
+async function salvarLimites(){
+  state.limits.total = parseFloat(document.getElementById('limTotal').value) || 0;
+  state.limits.credito = parseFloat(document.getElementById('limCredito').value) || 0;
+  state.limits.debito = parseFloat(document.getElementById('limDebito').value) || 0;
+  document.querySelectorAll('.cat-limit-input').forEach(inp=>{ state.limits.categorias[inp.dataset.cat] = parseFloat(inp.value) || 0; });
+  const ok = await saveState();
+  document.getElementById('limitsSaveNote').textContent = ok ? 'Limites salvos ✓' : 'Não consegui salvar — sem conexão com o servidor no momento. Tenta de novo.';
+  setTimeout(()=>{ document.getElementById('limitsSaveNote').textContent=''; }, ok?2000:5000);
+  render();
+}
+
+function render(){
+  renderWhoRow();
+  renderCategoriaSelect();
+  selectPay(selectedPay);
+  renderDashboard();
+  renderHistory();
+}
+
+function exportarBackup(){
+  const dataStr = JSON.stringify(state, null, 2);
+  const blob = new Blob([dataStr], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const hoje = new Date().toISOString().slice(0,10);
+  a.href = url;
+  a.download = `backup-recibo-${hoje}.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  const note = document.getElementById('backupNote');
+  note.textContent = 'Backup baixado ✓ — guarde esse arquivo em algum lugar seguro (Drive, e-mail, etc).';
+  setTimeout(()=>{ note.textContent=''; }, 4000);
+}
+
+let backupPendente = null;
+async function importarBackup(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const note = document.getElementById('backupNote');
+  try{
+    const texto = await file.text();
+    const novoState = JSON.parse(texto);
+    if(!novoState || !Array.isArray(novoState.entries)){
+      note.textContent = 'Esse arquivo não parece ser um backup válido.';
+      event.target.value = '';
+      return;
+    }
+    backupPendente = novoState;
+    document.getElementById('importConfirmWrap').style.display = 'block';
+    note.textContent = '';
+  }catch(e){
+    note.textContent = 'Não consegui ler esse arquivo. Confira se é o backup certo.';
+  }
+  event.target.value = '';
+}
+async function confirmarImportacao(){
+  if(!backupPendente) return;
+  const estadoAntigo = state;
+  state = backupPendente;
+  if(!state.cards) state.cards = [];
+  const ok = await saveState();
+  const note = document.getElementById('backupNote');
+  if(!ok){
+    state = estadoAntigo;
+    note.textContent = 'Não consegui restaurar — sem conexão com o servidor no momento. Tenta de novo.';
+    setTimeout(()=>{ note.textContent=''; }, 5000);
+    return;
+  }
+  render();
+  backupPendente = null;
+  document.getElementById('importConfirmWrap').style.display = 'none';
+  note.textContent = 'Backup restaurado com sucesso ✓';
+  setTimeout(()=>{ note.textContent=''; }, 4000);
+}
+function cancelarImportacao(){
+  backupPendente = null;
+  document.getElementById('importConfirmWrap').style.display = 'none';
+}
+
+loadState();
+</script>
+</body>
+</html>
