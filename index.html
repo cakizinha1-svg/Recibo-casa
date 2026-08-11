@@ -6,7 +6,7 @@
 <title>Recibo — controle de gastos</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
 <script src="https://unpkg.com/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
@@ -603,6 +603,11 @@ async function startScan(){
     video.srcObject = stream; await video.play();
     const canvas = document.createElement('canvas'); const ctx = canvas.getContext('2d');
     scanLoop = setInterval(()=>{
+      if(typeof jsQR === 'undefined'){
+        document.getElementById('qrStatus').textContent = 'Não consegui carregar o leitor de QR code. Verifique sua conexão e recarregue a página.';
+        stopScan();
+        return;
+      }
       if(video.readyState !== video.HAVE_ENOUGH_DATA) return;
       canvas.width = video.videoWidth; canvas.height = video.videoHeight;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -965,11 +970,13 @@ function abrirEdicao(id, modo){ cardEditOpen[id] = modo; avulsoParcelaOn[id] = f
 function fecharEdicao(id){ cardEditOpen[id] = null; renderCards(); }
 function toggleAvulsoParcela(id){ avulsoParcelaOn[id] = !avulsoParcelaOn[id]; renderCards(); }
 
-function mostrarErroCartao(msg){
+function mostrarNotaCartao(msg, cor){
   const note = document.getElementById('cardsNote');
+  note.style.color = cor || 'var(--danger)';
   note.textContent = msg;
-  setTimeout(()=>{ if(note.textContent===msg) note.textContent=''; }, 6000);
+  setTimeout(()=>{ if(note.textContent===msg) note.textContent=''; }, cor==='var(--pink-soft)' ? 2500 : 6000);
 }
+function mostrarErroCartao(msg){ mostrarNotaCartao(msg, 'var(--danger)'); }
 
 async function salvarValorMes(id){
   const card = state.cards.find(c=>c.id===id); if(!card) return;
@@ -986,6 +993,7 @@ async function salvarValorMes(id){
   }
   cardEditOpen[id] = null;
   render();
+  mostrarNotaCartao('Valor atualizado ✓', 'var(--pink-soft)');
 }
 async function salvarValorCheio(id){
   const card = state.cards.find(c=>c.id===id); if(!card) return;
@@ -1010,6 +1018,7 @@ async function salvarValorCheio(id){
   }
   cardEditOpen[id] = null; avulsoParcelaOn[id] = false;
   render();
+  mostrarNotaCartao('Lançamento criado ✓', 'var(--pink-soft)');
 }
 async function confirmarRemoverCartao(id){
   const cardRemovido = state.cards.find(c=>c.id===id);
@@ -1024,6 +1033,7 @@ async function confirmarRemoverCartao(id){
   }
   delete cardEditOpen[id];
   render();
+  mostrarNotaCartao('Cartão removido ✓', 'var(--pink-soft)');
 }
 async function addCartao(){
   const apelido = document.getElementById('newCardNome').value.trim();
@@ -1042,6 +1052,7 @@ async function addCartao(){
   document.getElementById('newCardNome').value=''; document.getElementById('newCardFatura').value='';
   document.getElementById('newCardFechamento').value=''; document.getElementById('newCardPagamento').value='';
   renderCards();
+  mostrarNotaCartao('Cartão criado ✓', 'var(--pink-soft)');
 }
 
 /* ---------- Limites ---------- */
